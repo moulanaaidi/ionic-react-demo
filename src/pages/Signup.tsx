@@ -1,14 +1,18 @@
 import React from 'react';
+// eslint-disable-next-line 
 import { Storage } from '@capacitor/core';
 import {
     IonPage,
     IonContent,
     IonButton
 } from '@ionic/react';
+import { HTTP } from '@ionic-native/http';
 import ExploreContainer from '../components/ExploreContainer';
 import HeaderContainer from '../components/HeaderContainer';
 import { RegisterAppRequest } from '../models/RegisterAppRequest'
+// eslint-disable-next-line 
 import { RegisterAppResponse } from '../models/RegisterAppResponse'
+// eslint-disable-next-line 
 import { KEYS } from '../constants';
 import './Signup.css';
 
@@ -21,7 +25,7 @@ const _arrayBufferToBase64 = (ab: ArrayBuffer) => {
     }
     return window.btoa(binary);
 }
-
+// eslint-disable-next-line 
 const _base64ToArrayBuffer = (base64str: string) => {
     let binary_string = window.atob(base64str);
     let len = binary_string.length;
@@ -45,7 +49,7 @@ const Signup: React.FC = () => {
         )
 
         const appPubkeyAb = await window.crypto.subtle.exportKey(
-            "raw",
+            "spki",
             appKeypair.publicKey
         );
 
@@ -67,21 +71,14 @@ const Signup: React.FC = () => {
             "appInstanceId": "cmfh_QRIxCQ"
         };
 
+        const options: any = {
+            serializer: 'utf8',
+            method: 'post',
+            data: JSON.stringify(requestData)
+        };
+        let response = await HTTP.sendRequest(process.env.REACT_APP_SERVER_URL + '', options);
 
-        let responseData: Response = await fetch(process.env.REACT_APP_SERVER_URL + '', {
-            method: 'POST', // *GET, POST, PUT, DELETE, etc.
-            // mode: 'no-cors', // no-cors, *cors, same-origin
-            // cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
-            // credentials: 'same-origin', // include, *same-origin, omit
-            headers: {
-                'Content-Type': 'application/text'
-            },
-            // redirect: 'follow', // manual, *follow, error
-            // referrerPolicy: 'no-referrer', // no-referrer, *no-referrer-when-downgrade, origin, origin-when-cross-origin, same-origin, strict-origin, strict-origin-when-cross-origin, unsafe-url
-            body: JSON.stringify(requestData) // body dasta type must match "Content-Type" header
-        })
-
-        let responseJson: RegisterAppResponse = (await responseData.json()).message;
+        let responseJson: RegisterAppResponse = JSON.parse(response.data);
         console.log('RegisterAppResponse : ', responseJson);
         let serverPubKey = responseJson.serverPubKey;
         let serverPubkeyAb = _base64ToArrayBuffer(serverPubKey)
@@ -107,7 +104,7 @@ const Signup: React.FC = () => {
                 name: "AES-GCM",
                 length: 256
             },
-            false,
+            true,
             ["encrypt", "decrypt"]
         );
 
@@ -116,7 +113,9 @@ const Signup: React.FC = () => {
             appCekKey
         );
 
-        await Storage.set({ key: KEYS.APP_CEK_KEY, value: _arrayBufferToBase64(appSecretKeyAb) });
+        let appCekb64 = _arrayBufferToBase64(appSecretKeyAb);
+        console.log('appCekb64 : ', appCekb64)
+        await Storage.set({ key: KEYS.APP_CEK_KEY, value: appCekb64 });
     }
 
     return (

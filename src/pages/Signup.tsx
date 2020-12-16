@@ -1,59 +1,35 @@
 import React from 'react';
-// eslint-disable-next-line 
 import { Storage } from '@capacitor/core';
 import {
     IonPage,
     IonContent,
     IonButton
 } from '@ionic/react';
-import { HTTP } from '@ionic-native/http';
+
 import ExploreContainer from '../components/ExploreContainer';
 import HeaderContainer from '../components/HeaderContainer';
 import { RegisterAppRequest } from '../models/RegisterAppRequest'
-// eslint-disable-next-line 
 import { RegisterAppResponse } from '../models/RegisterAppResponse'
-// eslint-disable-next-line 
-import { KEYS } from '../constants';
-import './Signup.css';
 
-const _arrayBufferToBase64 = (ab: ArrayBuffer) => {
-    let binary = '';
-    let bytes = new Uint8Array(ab);
-    let len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return window.btoa(binary);
-}
-// eslint-disable-next-line 
-const _base64ToArrayBuffer = (base64str: string) => {
-    let binary_string = window.atob(base64str);
-    let len = binary_string.length;
-    let bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binary_string.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
+import { KEYS } from '../constants';
+import { _arrayBufferToBase64, _base64ToArrayBuffer } from '../services/util'
+import {
+    generateKeypair,
+    exportPublicKey,
+    importPublicKey,
+    generateSecretKey,
+    secretKeyToBase64String
+} from '../services/crypto'
+import { sendPostRequest } from '../services/http'
+
+import './Signup.css';
 
 const Signup: React.FC = () => {
 
     const signupHandler = async () => {
-        const appKeypair = await window.crypto.subtle.generateKey(
-            {
-                name: "ECDH",
-                namedCurve: "P-256", //can be "P-256", "P-384", or "P-521"
-            },
-            true, //whether the key is extractable (i.e. can be used in exportKey)
-            ["deriveKey", "deriveBits"] //can be any combination of "deriveKey" and "deriveBits"
-        )
-
-        const appPubkeyAb = await window.crypto.subtle.exportKey(
-            "spki",
-            appKeypair.publicKey
-        );
-
-        let appPublicKey: string = _arrayBufferToBase64(appPubkeyAb);
+        const appKeypair = await generateKeypair();
+        const appPubkeyAb = await exportPublicKey(appKeypair.publicKey)
+        const appPublicKey: string = _arrayBufferToBase64(appPubkeyAb);
 
         const requestData: RegisterAppRequest = {
             "iss": "IMS_AUTHENTICATOR",
@@ -71,50 +47,18 @@ const Signup: React.FC = () => {
             "appInstanceId": "cmfh_QRIxCQ"
         };
 
-        const options: any = {
-            serializer: 'utf8',
-            method: 'post',
-            data: JSON.stringify(requestData)
-        };
-        let response = await HTTP.sendRequest(process.env.REACT_APP_SERVER_URL + '', options);
-
-        let responseJson: RegisterAppResponse = JSON.parse(response.data);
+        const response = await sendPostRequest('/IMS_Authenticator_MAP/api/mobile/app/test', requestData);
+        const responseJson: RegisterAppResponse = JSON.parse(response.data);
         console.log('RegisterAppResponse : ', responseJson);
-        let serverPubKey = responseJson.serverPubKey;
-        let serverPubkeyAb = _base64ToArrayBuffer(serverPubKey)
 
-        let serverPubkey: CryptoKey = await window.crypto.subtle.importKey(
-            "spki", //can be "jwk" (public or private), "raw" (public only), "spki" (public only), or "pkcs8" (private only)
-            serverPubkeyAb,
-            {   //these are the algorithm options
-                name: "ECDH",
-                namedCurve: "P-256", //can be "P-256", "P-384", or "P-521"
-            },
-            true, //whether the key is extractable (i.e. can be used in exportKey)
-            [] //"deriveKey" and/or "deriveBits" for private keys only (just put an empty list if importing a public key)
-        );
+        const serverPubKey = responseJson.serverPubKey;
+        const serverPubkey: CryptoKey = await importPublicKey(serverPubKey);
 
-        let appCekKey = await window.crypto.subtle.deriveKey(
-            {
-                name: "ECDH",
-                public: serverPubkey
-            },
-            appKeypair.privateKey,
-            {
-                name: "AES-GCM",
-                length: 256
-            },
-            true,
-            ["encrypt", "decrypt"]
-        );
+        let appCekKey = await generateSecretKey(serverPubkey, appKeypair.privateKey)
 
-        const appSecretKeyAb = await window.crypto.subtle.exportKey(
-            "raw",
-            appCekKey
-        );
-
-        let appCekb64 = _arrayBufferToBase64(appSecretKeyAb);
+        let appCekb64 = await secretKeyToBase64String(appCekKey)
         console.log('appCekb64 : ', appCekb64)
+        
         await Storage.set({ key: KEYS.APP_CEK_KEY, value: appCekb64 });
     }
 
